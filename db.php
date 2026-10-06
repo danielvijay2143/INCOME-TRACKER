@@ -3,10 +3,10 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$host    = 'sql211.infinityfree.com';
-$db      = 'if0_43090720_income_tracker';
-$user    = 'if0_43090720'; // Update with your MySQL database username
-$pass    = 'RLFUvZapFl4zp4';     // Update with your MySQL database password
+$host    = 'mysql-23824b5d-vijayincome.a.aivencloud.com';
+$db      = 'defaultdb';
+$user    = 'avnadmin'; // Update with your MySQL database username
+$pass    = 'AVNS_o2ZElfApx15pw0XpAIJ';     // Update with your MySQL database password
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
