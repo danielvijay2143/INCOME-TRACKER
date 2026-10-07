@@ -3,10 +3,10 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$host    = 'mysql-23824b5d-vijayincome.a.aivencloud.com';
+$host    = 'localhost';
 $db      = 'defaultdb';
-$user    = 'avnadmin'; // Update with your MySQL database username
-$pass    = 'AVNS_o2ZElfApx15pw0XpAIJ';     // Update with your MySQL database password
+$user    = 'root'; // Update with your local MySQL username if different
+$pass    = '';     // Update with your local MySQL password if needed
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
