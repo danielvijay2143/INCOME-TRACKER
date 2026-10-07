@@ -1,79 +1,131 @@
 <?php
-require_once 'db.php';
+// Start session before accessing session variables
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 header('Content-Type: application/json');
+require_once 'db.php';
 
+// Auth Guard
 if (!isset($_SESSION['user_id'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized access.']);
     exit;
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
+$method   = $_SERVER['REQUEST_METHOD'];
+$userRole = $_SESSION['role'] ?? 'user';
 
-// GET: Fetch all categories
+// Helper function to validate CSRF tokens
+function validateCsrfToken($token) {
+    return !empty($token) && !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+}
+
+// --- GET: FETCH CATEGORIES ---
 if ($method === 'GET') {
-    $stmt = $pdo->query("SELECT id, name FROM service_categories ORDER BY name ASC");
-    $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    echo json_encode(['success' => true, 'categories' => $categories]);
+    try {
+        $stmt = $pdo->query("SELECT * FROM categories ORDER BY name ASC");
+        $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'categories' => $categories]);
+    } catch (\PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Failed to fetch categories.']);
+    }
     exit;
 }
 
-// POST: Add a new category
+// --- POST: ADD CATEGORY ---
 if ($method === 'POST') {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $name = trim($input['name'] ?? '');
+    $rawInput = file_get_contents('php://input');
+    $input    = json_decode($rawInput, true) ?? $_POST;
 
-    if (empty($name)) {
-        echo json_encode(['success' => false, 'message' => 'Category name is required']);
+    // CSRF Check
+    $csrfToken = $input['csrf_token'] ?? '';
+    if (!validateCsrfToken($csrfToken)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'CSRF validation failed.']);
         exit;
     }
 
-    try {
-        $stmt = $pdo->prepare("INSERT INTO service_categories (name) VALUES (:name)");
-        $stmt->execute([':name' => $name]);
-        echo json_encode(['success' => true, 'id' => $pdo->lastInsertId(), 'name' => $name]);
-    } catch (PDOException $e) {
-        if ($e->getCode() == '23000') {
-            echo json_encode(['success' => false, 'message' => 'Category already exists']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Database error']);
+    $name = trim($input['name'] ?? '');
+
+    if (!empty($name)) {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO categories (name) VALUES (?)");
+            $stmt->execute([$name]);
+            echo json_encode(['success' => true, 'message' => 'Category added successfully']);
+        } catch (\PDOException $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Category already exists or an error occurred']);
         }
+    } else {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Category name required']);
     }
     exit;
 }
 
-// PUT: Update an existing category
+// --- PUT: EDIT CATEGORY ---
 if ($method === 'PUT') {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $id = intval($input['id'] ?? 0);
+    $rawInput = file_get_contents('php://input');
+    $input    = json_decode($rawInput, true);
+
+    // Admin Role Check
+    if ($userRole !== 'admin') {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Permission denied. Admin role required.']);
+        exit;
+    }
+
+    // CSRF Check
+    $csrfToken = $input['csrf_token'] ?? '';
+    if (!validateCsrfToken($csrfToken)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'CSRF validation failed.']);
+        exit;
+    }
+
+    $id   = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
     $name = trim($input['name'] ?? '');
 
-    if ($id <= 0 || empty($name)) {
-        echo json_encode(['success' => false, 'message' => 'Invalid parameters']);
-        exit;
-    }
-
-    try {
-        $stmt = $pdo->prepare("UPDATE service_categories SET name = :name WHERE id = :id");
-        $stmt->execute([':name' => $name, ':id' => $id]);
-        echo json_encode(['success' => true]);
-    } catch (PDOException $e) {
-        echo json_encode(['success' => false, 'message' => 'Error updating category']);
+    if ($id && !empty($name)) {
+        $stmt = $pdo->prepare("UPDATE categories SET name = ? WHERE id = ?");
+        $stmt->execute([$name, $id]);
+        echo json_encode(['success' => true, 'message' => 'Category updated']);
+    } else {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Invalid data']);
     }
     exit;
 }
 
-// DELETE: Delete a category
+// --- DELETE: REMOVE CATEGORY ---
 if ($method === 'DELETE') {
-    $id = intval($_GET['id'] ?? 0);
-
-    if ($id <= 0) {
-        echo json_encode(['success' => false, 'message' => 'Invalid ID']);
+    // Admin Role Check
+    if ($userRole !== 'admin') {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Permission denied. Admin role required.']);
         exit;
     }
 
-    $stmt = $pdo->prepare("DELETE FROM service_categories WHERE id = :id");
-    $stmt->execute([':id' => $id]);
-    echo json_encode(['success' => true]);
+    // CSRF Check via query string
+    $csrfToken = $_GET['csrf_token'] ?? '';
+    if (!validateCsrfToken($csrfToken)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'CSRF validation failed.']);
+        exit;
+    }
+
+    $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+    if ($id) {
+        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
+        $stmt->execute([$id]);
+        echo json_encode(['success' => true, 'message' => 'Category deleted']);
+    } else {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Invalid ID']);
+    }
     exit;
 }
+?>

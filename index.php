@@ -10,6 +10,10 @@ if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
 }
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 ?>
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
@@ -280,6 +284,7 @@ if (!isset($_SESSION['user_id'])) {
     </style>
 </head>
 <body>
+    <input type="hidden" id="csrfToken" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
 
     <!-- Toast Notification Container -->
     <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100;">
@@ -328,9 +333,10 @@ if (!isset($_SESSION['user_id'])) {
         </ul>
 
         <div class="pt-2 border-top border-secondary border-opacity-25 mt-auto">
-            <a href="logout.php" class="btn btn-outline-danger w-100 btn-sm rounded-3 py-1.5 fw-semibold d-flex align-items-center justify-content-center gap-1" style="font-size: 0.8rem;" title="Logout">
-                <i class="bi bi-box-arrow-right fs-6"></i><span class="logout-text">Logout (<?= htmlspecialchars($_SESSION['username'] ?? 'User') ?>)</span>
-            </a>
+            <a href="logout.php" class="btn btn-outline-danger w-100 btn-sm rounded-3 py-1.5 fw-semibold d-flex align-items-center justify-content-center gap-1" title="Logout">
+    <i class="bi bi-box-arrow-right fs-6"></i>
+    <span class="logout-text">Logout (<?= htmlspecialchars($_SESSION['username'] ?? 'User') ?>)</span>
+</a>
         </div>
     </aside>
 
@@ -634,6 +640,7 @@ if (!isset($_SESSION['user_id'])) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let userRole = '<?= htmlspecialchars($_SESSION['role'] ?? 'user') ?>';
+        let csrfToken = document.getElementById('csrfToken').value;
         let cachedEntries = [];
         let categories = [];
         let trendChart = null;
@@ -707,9 +714,10 @@ if (!isset($_SESSION['user_id'])) {
 
         function renderCategoryDropdowns() {
             const optionsHtml = categories.map(cat => `<option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>`).join('');
-            document.getElementById('addCategory').innerHTML = optionsHtml;
-            document.getElementById('modalAddCategory').innerHTML = optionsHtml;
-            document.getElementById('editCategory').innerHTML = optionsHtml;
+            ['addCategory', 'modalAddCategory', 'editCategory'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = optionsHtml;
+            });
         }
 
         function renderCategoryList() {
@@ -744,7 +752,7 @@ if (!isset($_SESSION['user_id'])) {
             const res = await fetch('categories_api.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name, csrf_token: csrfToken })
             });
             const data = await res.json();
 
@@ -765,7 +773,7 @@ if (!isset($_SESSION['user_id'])) {
             const res = await fetch('categories_api.php', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, name: newName.trim() })
+                body: JSON.stringify({ id, name: newName.trim(), csrf_token: csrfToken })
             });
             const data = await res.json();
 
@@ -780,7 +788,7 @@ if (!isset($_SESSION['user_id'])) {
 
         async function deleteCategory(id, name) {
             if (confirm(`Delete category "${name}"?`)) {
-                const res = await fetch(`categories_api.php?id=${id}`, { method: 'DELETE' });
+                const res = await fetch(`categories_api.php?id=${id}&csrf_token=${csrfToken}`, { method: 'DELETE' });
                 const data = await res.json();
 
                 if (data.success) {
@@ -1053,7 +1061,8 @@ if (!isset($_SESSION['user_id'])) {
                 amount: document.getElementById('addAmount').value,
                 category: document.getElementById('addCategory').value,
                 entry_date: document.getElementById('addDate').value,
-                notes: document.getElementById('addNotes').value
+                notes: document.getElementById('addNotes').value,
+                csrf_token: csrfToken
             };
 
             await submitNewTransaction(payload, () => {
@@ -1071,7 +1080,8 @@ if (!isset($_SESSION['user_id'])) {
                 amount: document.getElementById('modalAddAmount').value,
                 category: document.getElementById('modalAddCategory').value,
                 entry_date: document.getElementById('modalAddDate').value,
-                notes: document.getElementById('modalAddNotes').value
+                notes: document.getElementById('modalAddNotes').value,
+                csrf_token: csrfToken
             };
 
             await submitNewTransaction(payload, () => {
@@ -1121,7 +1131,8 @@ if (!isset($_SESSION['user_id'])) {
                 amount: document.getElementById('editAmount').value,
                 category: document.getElementById('editCategory').value,
                 entry_date: document.getElementById('editDate').value,
-                notes: document.getElementById('editNotes').value
+                notes: document.getElementById('editNotes').value,
+                csrf_token: csrfToken
             };
 
             const res = await fetch('api.php', {
@@ -1141,7 +1152,7 @@ if (!isset($_SESSION['user_id'])) {
 
         async function deleteRecord(id) {
             if (confirm('Delete this record permanently?')) {
-                const res = await fetch(`api.php?id=${id}`, { method: 'DELETE' });
+                const res = await fetch(`api.php?id=${id}&csrf_token=${csrfToken}`, { method: 'DELETE' });
                 if (res.ok) {
                     showNotification('Record deleted.');
                     fetchEntries();

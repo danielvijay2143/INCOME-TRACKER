@@ -1,4 +1,9 @@
 <?php
+// Start session before accessing session variables
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 header('Content-Type: application/json');
 require_once 'db.php';
 
@@ -11,7 +16,12 @@ if (!isset($_SESSION['user_id'])) {
 
 $method   = $_SERVER['REQUEST_METHOD'];
 $userId   = $_SESSION['user_id'];
-$userRole = $_SESSION['role'];
+$userRole = $_SESSION['role'] ?? 'user';
+
+// Helper function to validate CSRF tokens
+function validateCsrfToken($token) {
+    return !empty($token) && !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
+}
 
 // --- GET REQUEST: FETCH ENTRIES & ANALYTICS ---
 if ($method === 'GET') {
@@ -20,7 +30,7 @@ if ($method === 'GET') {
         $id = filter_var($_GET['id'], FILTER_VALIDATE_INT);
         $stmt = $pdo->prepare("SELECT * FROM income_entries WHERE id = ?");
         $stmt->execute([$id]);
-        $entry = $stmt->fetch();
+        $entry = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($entry) {
             echo json_encode(['success' => true, 'entry' => $entry]);
@@ -56,7 +66,7 @@ if ($method === 'GET') {
 
     $stmt = $pdo->prepare("SELECT e.*, u.username FROM income_entries e JOIN users u ON e.user_id = u.id WHERE $whereSQL ORDER BY entry_date DESC, id DESC");
     $stmt->execute($params);
-    $entries = $stmt->fetchAll();
+    $entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $stats = [
         'today' => (float)($pdo->query("SELECT SUM(amount) FROM income_entries WHERE entry_date = CURDATE()")->fetchColumn() ?: 0.00),
@@ -79,7 +89,16 @@ if ($method === 'GET') {
 
 // --- POST REQUEST: ADD OR EDIT ENTRY ---
 if ($method === 'POST') {
-    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $rawInput = file_get_contents('php://input');
+    $input    = json_decode($rawInput, true) ?? $_POST;
+
+    // Validate CSRF
+    $csrfToken = $input['csrf_token'] ?? '';
+    if (!validateCsrfToken($csrfToken)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'CSRF validation failed.']);
+        exit;
+    }
 
     $id        = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
     $title     = trim($input['title'] ?? '');
@@ -87,6 +106,13 @@ if ($method === 'POST') {
     $category  = trim($input['category'] ?? '');
     $entryDate = $input['entry_date'] ?? '';
     $notes     = trim($input['notes'] ?? '');
+
+    // Validate Date Format (YYYY-MM-DD)
+    if ($entryDate && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $entryDate)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid date format. Expected YYYY-MM-DD.']);
+        exit;
+    }
 
     if ($title && $amount && $entryDate && $category) {
         if ($id) {
@@ -122,6 +148,14 @@ if ($method === 'DELETE') {
         exit;
     }
 
+    // CSRF check via URL parameter for DELETE requests
+    $csrfToken = $_GET['csrf_token'] ?? '';
+    if (!validateCsrfToken($csrfToken)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'CSRF validation failed.']);
+        exit;
+    }
+
     $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
     if ($id) {
         $stmt = $pdo->prepare("DELETE FROM income_entries WHERE id = ?");
@@ -135,4 +169,3 @@ if ($method === 'DELETE') {
     exit;
 }
 ?>
-
